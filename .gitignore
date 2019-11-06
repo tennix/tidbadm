@@ -1,0 +1,4 @@
+tidbadm
+bin/
+*.yaml
+*.yml
