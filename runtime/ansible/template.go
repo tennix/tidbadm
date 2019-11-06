@@ -1,7 +1,7 @@
 package ansible
 
 type ansibleInit struct {
-	DownloadURL string
+	Version string
 }
 
 // The prepare task is done on localhost before any other tasks
@@ -9,28 +9,25 @@ var ansibleInitTmpl = `- name: Prepare
   hosts: localhost
   gather_facts: no
   tasks:
-  - name: Create directory
-    file: path={{ item }} state=directory mode=0755
-    with_items:
-    - resources
-    - bin
   - name: Download binary
     get_url:
-      url: <% .DownloadURL %>
-      dest: resources/
+      url: https://download.pingcap.org/tidb-<% .Version %>-linux-amd64.tar.gz
+      dest: "{{ playbook_dir }}/tidb-<% .Version %>-linux-amd64.tar.gz"
   - name: Extract tarball
     unarchive:
-      src: resources/
-      dest: bin/
+      src: tidb-<% .Version %>-linux-amd64.tar.gz
+      dest: "{{ playbook_dir }}/"
 `
 
 type ansibleInstall struct {
 	Host      string
 	Name      string
+	Version   string
 	Component string
 	DataDir   string
 	DeployDir string
 	LogDir    string
+	Binaries  []string
 	Script    string
 	Systemd   string
 }
@@ -50,9 +47,13 @@ var ansibleInstallTmpl = `- name: Install
     - <% .LogDir %>
   - name: Install binary
     copy:
-      src: bin/<% .Component %>
-      dest: <% .DeployDir %>/bin/<% .Component %>
+      src: tidb-<% .Version %>-linux-amd64/bin/{{ item }}
+      dest: <% .DeployDir %>/bin/{{ item }}
       mode: 0755
+    with_items:
+<%- range .Binaries %>
+    - <% . %>
+<%- end %>
   - name: Install script
     copy:
       content: |
@@ -141,51 +142,61 @@ var runPdScriptTmpl = `#!/usr/bin/env bash
             --log-file=<% .LogDir %>/pd.log 2>> <% .LogDir %>/pd_stderr.log
 `
 
+type runTikvScript struct {
+	Port       int
+	StatusPort int
+	SelfIP     string
+	PdAddrs    string
+	DeployDir  string
+	DataDir    string
+	LogDir     string
+}
+
 var runTikvScriptTmpl = `#!/usr/bin/env bash
-set -e
-ulimit -n 1000000
+        set -e
+        ulimit -n 1000000
 
-# WARNING: This file was auto-generated. Do not edit!
-#          All your edit might be overwritten!
+        # WARNING: This file was auto-generated. Do not edit!
+        #          All your edit might be overwritten!
 
-DEPLOY_DIR=<% .DeployDir %>
+        DEPLOY_DIR=<% .DeployDir %>
 
-cd "${DEPLOY_DIR}" || exit 1
+        cd "${DEPLOY_DIR}" || exit 1
 
-export RUST_BACKTRACE=1
+        export RUST_BACKTRACE=1
 
-export TZ=${TZ:-/etc/localtime}
+        export TZ=${TZ:-/etc/localtime}
 
-exec bin/tikv-server \
-    --addr=0.0.0.0:<% .Port %> \
-    --advertise-addr=<% .SelfIP %>:<% .Port %> \
-    --status-addr=0.0.0.0:<% .StatusPort %> \
-    --pd-endpoints=<% .PdAddrs %> \
-    --data-dir=<% .DataDir %> \
-    --config=conf/tikv.toml \
-    --log-file=<% .LogDir %>/tikv.log 2>> <% .LogDir %>/tikv_stderr.log
+        exec bin/tikv-server \
+            --addr=0.0.0.0:<% .Port %> \
+            --advertise-addr=<% .SelfIP %>:<% .Port %> \
+            --status-addr=0.0.0.0:<% .StatusPort %> \
+            --pd-endpoints=<% .PdAddrs %> \
+            --data-dir=<% .DataDir %> \
+            --config=conf/tikv.toml \
+            --log-file=<% .LogDir %>/tikv.log 2>> <% .LogDir %>/tikv_stderr.log
 `
 
 var runTidbScriptTmpl = `#!/usr/bin/env bash
-set -e
-ulimit -n 1000000
+        set -e
+        ulimit -n 1000000
 
-# WARNING: This file was auto-generated. Do not edit!
-#          All your edit might be overwritten!
+        # WARNING: This file was auto-generated. Do not edit!
+        #          All your edit might be overwritten!
 
-DEPLOY_DIR=<% .DeployDir %>
+        DEPLOY_DIR=<% .DeployDir %>
 
-cd "${DEPLOY_DIR}" || exit 1
+        cd "${DEPLOY_DIR}" || exit 1
 
-export TZ=<% .TZ %>
+        export TZ=<% .TZ %>
 
-exec bin/tidb-server \
-    -P <% .Port %> \
-    --status=<% .StatusPort %> \
-    --advertise-address=<% .SelfIP %> \
-    --path=<% .PdAddrs %> \
-    --config=conf/tidb.toml \
-    --enable-binlog=<% .Binlog %> \
-    --log-slow-query=<% .LogDir %>/tidb-slow.log \
-    --log-file=<% .LogDir %>/tidb.log 2>> <% .LogDir %>/tidb_stderr.log
+        exec bin/tidb-server \
+            -P <% .Port %> \
+            --status=<% .StatusPort %> \
+            --advertise-address=<% .SelfIP %> \
+            --path=<% .PdAddrs %> \
+            --config=conf/tidb.toml \
+            --enable-binlog=<% .Binlog %> \
+            --log-slow-query=<% .LogDir %>/tidb-slow.log \
+            --log-file=<% .LogDir %>/tidb.log 2>> <% .LogDir %>/tidb_stderr.log
 `

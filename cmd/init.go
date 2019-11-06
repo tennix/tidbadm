@@ -7,7 +7,12 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var (
+	name string
+)
+
 func init() {
+	initCmd.Flags().StringVarP(&name, "name", "n", "", "tidb cluster name")
 	rootCmd.AddCommand(initCmd)
 }
 
